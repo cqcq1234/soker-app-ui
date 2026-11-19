@@ -1,11 +1,12 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { AttachmentCard } from "../chat/components/AttachmentCard";
 import { ComposerAttachments } from "../chat/components/ComposerAttachments";
 import { copyReplyText } from "../chat/reply-actions";
 import type { LocalAttachment } from "../chat/types";
+import { ReviewChat, type ReviewControls } from "../review/ReviewChat";
 import { AcquisitionChatComposer } from "./ChatTabComposer";
 import { Bubble, chatTabThemeStyle } from "./ConversationBubble";
 import { ChatTabScrollBottom } from "./ChatTabScrollBottom";
@@ -224,13 +225,16 @@ function ProspectReview({ review, question }: {
 }
 
 export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: boolean; demo?: boolean }) {
-  const [mode, setMode] = useState<"acquisition" | "review">("acquisition");
+  const [mode, setMode] = useState<"acquisition" | "review">(() =>
+    demo && new URLSearchParams(window.location.search).get("mode") === "review" ? "review" : "acquisition");
   const reviewing = mode === "review";
-  const [reviewTurns, setReviewTurns] = useState<{ text: string; attachments: LocalAttachment[]; reply: string }[]>([]);
+  const [reviewVisited, setReviewVisited] = useState(reviewing);
+  const reviewControls = useRef<ReviewControls>(null);
   const drafts = useRef<Partial<Record<typeof mode, { text: string; attachments: LocalAttachment[] }>>>({});
   const [serviceMessage, setServiceMessage] = useState(false);
   const [panel, setPanel] = useState<"history" | "business" | "call" | "menu" | "wechat" | null>(null);
   const [savedCustomers, setSavedCustomers] = useState<DeliveredCustomer[]>([]);
+  const openingReviewFriends = useRef(false);
   const panelRef = useRef<HTMLDialogElement>(null);
   const [value, setValue] = useState("");
   const [attachments, setAttachments] = useState<LocalAttachment[]>([]);
@@ -251,16 +255,19 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const { content, state: scrollState, toBottom } = useChatTabScroll(mode, scroller);
-  const sendRef = useRef<(text: string) => void>(() => {});
+  const sendRef = useRef<(text: string) => boolean | void>(() => {});
   const bridge = () => (window as Window & {
     webkit?: { messageHandlers?: Record<string, { postMessage: (value: unknown) => void }> };
   }).webkit?.messageHandlers;
+  const handleReviewSheet = useCallback((open: boolean) => {
+    if (embedded) bridge()?.sokerAccountMenu?.postMessage(open ? "open" : "close");
+  }, [embedded]);
 
   useEffect(() => {
     if (!embedded) return;
     const submit = (event: Event) => {
       const text = (event as CustomEvent<unknown>).detail;
-      if (typeof text === "string") sendRef.current(text);
+      if (typeof text === "string" && sendRef.current(text) === false) event.preventDefault();
     };
     const receiveHistory = (event: Event) => {
       const records = (event as CustomEvent<DeliveredCustomer[]>).detail;
@@ -281,6 +288,7 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
     window.addEventListener("soker-acquisition-submit", submit);
     window.addEventListener("soker-acquisition-attachments", receiveAttachments);
     window.addEventListener("soker-acquisition-attachment-error", receiveAttachmentError);
+    bridge()?.sokerChatMode?.postMessage(mode);
     bridge()?.sokerAcquisitionReady?.postMessage(true);
     return () => {
       window.removeEventListener("soker-acquisition-submit", submit);
@@ -453,17 +461,13 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
 
   function send(raw = value) {
     const text = raw.trim();
+    if (reviewing) {
+      const sent = reviewControls.current?.send(text) ?? false;
+      if (sent) setValue("");
+      return sent;
+    }
     const sentAttachments = attachmentsRef.current;
     if (!text && !sentAttachments.length) return;
-    if (reviewing) {
-      const reply = "你可以把这位客户的朋友圈截图或原文发给我。我帮你看看他最近在关注什么，再找一个自然的切入点。";
-      setReviewTurns(turns => [...turns, { text, attachments: sentAttachments, reply }]);
-      replaceAttachments([]);
-      setAttachmentError("");
-      setValue("");
-      requestAnimationFrame(toBottom);
-      return;
-    }
     if (demo) return sendDemo(text, sentAttachments);
     if (!text) {
       const id = ++nextId.current * 2;
@@ -565,6 +569,7 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
     setValue(draft?.text ?? "");
     replaceAttachments(draft?.attachments ?? []);
     setAttachmentError("");
+    if (next === "review") setReviewVisited(true);
     setMode(next);
     bridge()?.sokerChatMode?.postMessage(next);
   }
@@ -584,6 +589,11 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
     {demo && <>
       <dialog ref={panelRef} className={styles.contextPanel} data-panel={panel ?? undefined} data-drawer={panel === "menu" || panel === "history" || panel === "wechat"} aria-labelledby="acquisition-panel-title" onClose={() => { if (!panelRef.current?.open) {
           setPanel(null);
+          if (openingReviewFriends.current) {
+            openingReviewFriends.current = false;
+            reviewControls.current?.openFriends();
+            return;
+          }
           bridge()?.sokerAccountMenu?.postMessage("close");
         } }}
         onClick={event => { if (event.target === event.currentTarget) panelRef.current?.close(); }}>
@@ -610,6 +620,10 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
             <section aria-labelledby="acquisition-menu-work">
               <h3 id="acquisition-menu-work" className={styles.menuSectionLabel}>工作台</h3>
               <div className={styles.menuGroup}>
+                {reviewing && <AccountMenuItem item="history" label="微信朋友" onSelect={() => {
+                  openingReviewFriends.current = true;
+                  panelRef.current?.close();
+                }} />}
                 <AccountMenuItem item="history" label="客户列表" onSelect={() => openPanel("history")} />
                 <AccountMenuItem item="business" label="业务理解" onSelect={() => openPanel("business")} />
               </div>
@@ -667,20 +681,11 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
         </svg>
       </button>
     </div>}
-    <div className={(reviewing ? reviewTurns.length === 0 : isEmpty) ? `${chatStyles.timeline} ${styles.emptyTimeline}` : `${chatStyles.timeline} ${styles.activeTimeline}`} ref={scroller} tabIndex={0} aria-label={reviewing ? "盘客对话" : "获客对话"}>
+    {reviewVisited && <div className={styles.reviewSurface} hidden={!reviewing}>
+      <ReviewChat controls={reviewControls} onSheetChange={handleReviewSheet} />
+    </div>}
+    <div hidden={reviewing} className={isEmpty ? `${chatStyles.timeline} ${styles.emptyTimeline}` : `${chatStyles.timeline} ${styles.activeTimeline}`} ref={scroller} tabIndex={0} aria-label="获客对话">
       <div className={chatStyles.timelineContent} ref={content}>
-      {reviewing ? (reviewTurns.length ? reviewTurns.map((turn, index) => <div key={index} data-chat-tab-item={index}>
-        {!!turn.attachments.length && <SentAttachments attachments={turn.attachments} />}
-        {turn.text && <div className={chatStyles.message}><Bubble text={turn.text} locale="zh" user onOpenLink={() => {}} /></div>}
-        <article className={styles.reply}><Bubble text={turn.reply} locale="zh" onOpenLink={() => {}} /></article>
-      </div>) : <section className={styles.starter}>
-        <span className={styles.starterMark} aria-hidden="true" />
-        <h1>想看看哪位客户的朋友圈？</h1>
-        <p>我帮你看看客户最近在关注什么，找个自然的切入点，方便你接着跟进。</p>
-        <div className={styles.starterExamples}>
-          <button type="button" onClick={() => openPanel("wechat")}>授权登录微信</button>
-        </div>
-      </section>) : <>
       {isEmpty && <section className={styles.starter}>
         <span className={styles.starterMark} aria-hidden="true" />
         <h1>{demo ? openingMessage : "你想找什么样的客户？"}</h1>
@@ -777,11 +782,10 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
           </div>}
         </article>;
       })}
-      </>}
       </div>
     </div>
-    <footer className={embedded ? styles.embeddedFooter : styles.footer}>
-      <ChatTabScrollBottom state={scrollState} locale="zh" onClick={toBottom} />
+    <footer className={embedded ? styles.embeddedFooter : styles.footer} hidden={embedded && reviewing}>
+      {!reviewing && <ChatTabScrollBottom state={scrollState} locale="zh" onClick={toBottom} />}
       {!reviewing && revision !== null && <div className={styles.revision}>补充上一轮找人需求 <button type="button" onClick={() => setRevision(null)}>取消</button></div>}
       {embedded ? <div ref={attachmentTrayRef} className={styles.embeddedAttachmentTray} data-has-attachments={attachments.length > 0}>
         <ComposerAttachments attachments={attachments} onRemove={removeAttachment} />
@@ -794,8 +798,8 @@ export function AcquisitionChat({ embedded = false, demo = true }: { embedded?: 
           event.currentTarget.value = "";
         }} />
         {attachmentError && <p className={styles.attachmentError} role="status">{attachmentError}</p>}
-        <AcquisitionChatComposer placeholder={reviewing ? "你想看哪位客户的朋友圈？" : undefined} inputRef={inputRef} value={value} onChange={setValue} onSend={() => send()}
-          attachments={attachments} onOpenAttachments={() => pickerRef.current?.click()} onRemoveAttachment={removeAttachment} />
+        <AcquisitionChatComposer placeholder={reviewing ? "问问今天该跟进谁" : undefined} inputRef={inputRef} value={value} onChange={setValue} onSend={() => send()}
+          attachments={attachments} onOpenAttachments={reviewing ? undefined : () => pickerRef.current?.click()} onRemoveAttachment={removeAttachment} />
       </>}
     </footer>
   </main>;

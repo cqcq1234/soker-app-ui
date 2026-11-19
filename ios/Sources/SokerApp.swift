@@ -4,22 +4,37 @@ import WebKit
 @main
 struct SokerApp: App {
     @StateObject private var chat = ChatBridge()
+    @AppStorage("soker.demo.signedIn") private var signedIn = false
+    @State private var showLogin = ProcessInfo.processInfo.arguments.contains("--show-login")
 
     var body: some Scene {
         WindowGroup {
-            WebSurface(chat: chat)
+            if !signedIn || showLogin {
+                DemoLoginView {
+                    signedIn = true
+                    showLogin = false
+                }
+                .preferredColorScheme(.light)
+            } else {
+                chatSurface
+            }
+        }
+    }
+
+    private var chatSurface: some View {
+        WebSurface(chat: chat)
                 .ignoresSafeArea(.container)
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if chat.ready && !chat.menuOpen {
                         HStack(spacing: 10) {
-                            TextField(chat.reviewing ? "你想看哪位客户的朋友圈？" : "描述你想找的客户", text: $chat.draft)
+                            TextField(chat.reviewing ? "问问今天该跟进谁" : "描述你想找的客户", text: $chat.draft)
                                 .onSubmit(chat.send)
                             Button(action: chat.send) {
                                 Image(systemName: "arrow.up.circle.fill")
                                     .font(.system(size: 26))
                             }
                             .accessibilityLabel("发送")
-                            .disabled(chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .disabled(chat.sending || chat.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                         .padding(.horizontal, 16)
                         .frame(height: 48)
@@ -31,7 +46,51 @@ struct SokerApp: App {
                 .alert("此功能需要企业服务", isPresented: $chat.showServiceMessage) {
                     Button("好", role: .cancel) {}
                 }
+    }
+}
+
+private struct DemoLoginView: View {
+    let onLogin: () -> Void
+    private let blue = Color(red: 33 / 255, green: 77 / 255, blue: 163 / 255)
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                VStack(spacing: 14) {
+                    Image("SokerBrand")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 56, height: 56)
+                        .padding(10)
+                        .background(Color(red: 0.94, green: 0.95, blue: 0.97), in: RoundedRectangle(cornerRadius: 22))
+                        .accessibilityHidden(true)
+                    Text("登录 Soker")
+                        .font(.largeTitle.weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
+                    Text("登录后进入盘客，连接微信并选择要关注的客户。")
+                        .font(.body)
+                        .foregroundStyle(Color(red: 83 / 255, green: 96 / 255, blue: 120 / 255))
+                        .multilineTextAlignment(.center)
+                }
+
+                Button(action: onLogin) {
+                    Text("登录")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                        .foregroundStyle(.white)
+                        .background(blue, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(maxWidth: 360)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 32)
+            .containerRelativeFrame(.vertical, alignment: .center)
+            .frame(maxWidth: .infinity)
         }
+        .background(.white)
     }
 }
 
@@ -59,6 +118,7 @@ final class ChatBridge: NSObject, ObservableObject, WKScriptMessageHandler {
     static let messageNames = ["sokerAcquisitionReady", "sokerAcquisitionInput", "sokerChatMode", "sokerAccountMenu"]
 
     @Published var draft = ""
+    @Published private(set) var sending = false
     @Published var ready = false
     @Published var reviewing = false
     @Published var menuOpen = false
@@ -74,20 +134,29 @@ final class ChatBridge: NSObject, ObservableObject, WKScriptMessageHandler {
            url.scheme == "https" || (url.scheme == "http" && url.host == "127.0.0.1") {
             return url
         }
-        return URL(string: "http://127.0.0.1:3131/chat-tab?mode=acquisition&embedded=1")!
+        return URL(string: "http://127.0.0.1:3131/chat-tab?mode=review&embedded=1&onboarding=1")!
     }()
 
     func send() {
-        let message = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty, let webView else { return }
-        draft = ""
+        let submittedDraft = draft
+        let submittedInReview = reviewing
+        let message = submittedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sending, !message.isEmpty, let webView else { return }
+        sending = true
         Task {
-            _ = try? await webView.callAsyncJavaScript(
-                "window.dispatchEvent(new CustomEvent('soker-acquisition-submit', { detail: message }));",
+            defer { sending = false }
+            let accepted = try? await webView.callAsyncJavaScript(
+                "return window.dispatchEvent(new CustomEvent('soker-acquisition-submit', { detail: message, cancelable: true }));",
                 arguments: ["message": message],
                 in: nil,
                 contentWorld: .page
             )
+            guard accepted as? Bool == true else { return }
+            if reviewing == submittedInReview {
+                if draft == submittedDraft { draft = "" }
+            } else if drafts[submittedInReview] == submittedDraft {
+                drafts[submittedInReview] = ""
+            }
         }
     }
 

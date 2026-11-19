@@ -24,6 +24,7 @@ await build({
   jsx: "automatic",
   minify: true,
   platform: "browser",
+  loader: { ".review.css": "text" },
   legalComments: "external",
   define: { "process.env.NODE_ENV": '"production"' },
   plugins: [{
