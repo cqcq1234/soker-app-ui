@@ -61,7 +61,6 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     { id: "closed", name: "已成交", ids: range(501, 556) },
     { id: "referred", name: "转介绍", ids: [...range(43, 51), ...range(557, 571)] },
     { id: "expo", name: "车展新客", ids: [...range(260, 265), ...range(572, 599)] },
-    { id: "new", name: "刚建的标签", ids: [] },
   ];
   const byTag = Object.fromEntries(tags.map((tag) => [tag.id, tag]));
   const defaultTags = ["potential", "visited"];
@@ -380,7 +379,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
 
   function renderSummarySettings() {
     const prefs = state.settingsDraft || { ...state.summaryPrefs, reviewMode: state.weeklyReviewMode };
-    return `<div class="assistant"><p class="message-text">总结按你方便的频率来。日报默认每天 18:00，周总结默认周日 18:00。你临时想问近况，也可以随时在这里问我。</p>
+    return `<div class="assistant"><p class="message-text">总结按你方便的频率来。日报每天 ${state.dailyDeliveryTime || "09:00"} 推送前一天的动态，周总结默认周日 18:00。你临时想问近况，也可以随时在这里问我。</p>
       <section class="editor setup-card" aria-label="总结与询问设置">
         <label class="check-row"><input type="checkbox" data-change="summary-daily" ${prefs.daily ? "checked" : ""}><span class="row-copy"><strong>每天发一段总结</strong><small>监控客户今天的近况与跟进时机</small></span></label>
         <label class="check-row"><input type="checkbox" data-change="summary-weekly" ${prefs.weekly ? "checked" : ""}><span class="row-copy"><strong>每周发一段总结</strong><small>汇总这一周的变化与联系进展</small></span></label>
@@ -510,7 +509,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     } else if (state.connection === "connected") {
       const hasPeople = state.tags.length || Object.keys(state.focus).length;
       content = hasPeople && !state.paused
-        ? `<button type="button" class="status monitor" data-act="activity" aria-label="正在监控朋友圈，查看当前状态"><span>正在监控朋友圈</span>${monitorSignal()}</button>`
+        ? `<button type="button" class="status monitor" data-act="activity" aria-label="正在帮你留意你的朋友动态，查看当前状态"><span>正在帮你留意你的朋友动态</span>${monitorSignal()}</button>`
         : `<button type="button" class="status" data-act="activity"><span>${state.paused ? "监控已暂停" : "微信已连接"}</span></button>`;
     }
     const slot = $("statusSlot");
@@ -676,16 +675,9 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
         card = expired
           ? `<h2>微信连接已失效</h2><p>之前的简报可以回看。重新连接原账号后，我会继续检查。</p>
             ${button("connect-start", "重新连接微信", { kind: "primary block" })}`
-          : turn.deferred
-            ? `<h2>已暂缓连接微信</h2><p>准备好后，可以回来继续设置盘客。</p>
-              ${button("connect-card", "查看说明并继续", { kind: "block" })}`
-            : `<div class="connection-actions">
-                ${button("connect-start", "连接微信", { kind: "primary block" })}
-                ${textButton("connect-later", "稍后连接", "", "muted")}
-              </div>
-  `;
+          : `<div class="connection-actions">${button("connect-start", "连接微信", { kind: "primary block" })}</div>`;
     }
-    const showsIntro = !expired && !turn.deferred && !pendingConnection;
+    const showsIntro = !expired && !pendingConnection;
     const intro = showsIntro
       ? `<div class="review-welcome">
           <h1>你好，我是 Soker。</h1>
@@ -1083,7 +1075,8 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     renderQuickActions();
     stream.innerHTML = incoming + (activeReply ? `<div class="assistant typing">${thinkingDots()}</div>` : "");
     const message = stream.lastElementChild;
-    if (message?.hasAttribute("data-turn-index")) {
+    const latestTurn = log.at(-1);
+    if (message?.hasAttribute("data-turn-index") && ["daily", "report", "weekly", "opportunity-details", "instant"].includes(latestTurn?.type)) {
       const { feedback } = log[Number(message.dataset.turnIndex)];
       message.insertAdjacentHTML("beforeend", `<div class="reply-feedback" role="group" aria-label="评价回复">
         <button type="button" data-feedback="up" aria-label="点赞" aria-pressed="${feedback === "up"}">${icon("thumb")}</button>
@@ -1220,7 +1213,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
 
   function openPicker(filter = "all", customerId = 0, setup = false) {
     state.focusDraft = Object.fromEntries(Object.keys(state.focusDraft || state.focus).filter((id) => customers.has(Number(id))).map((id) => [id, "instant"]));
-    picker = { query: "", filter, stage: "", limit: 20, candidate: customerId, setup };
+    picker = { query: "", filter, tag: "", limit: 20, candidate: customerId, setup };
     if (customerId) picker.query = customers.get(customerId).name;
     showSheet("picker");
     persist();
@@ -1232,7 +1225,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     return sortedCustomers(customers.keys()).filter((person) => {
       if (picker.candidate && picker.candidate !== person.id) return false;
       if (picker.filter === "selected" && !state.focusDraft[person.id]) return false;
-      if (picker.stage && picker.stage !== person.stage) return false;
+      if (picker.tag && !byTag[picker.tag]?.ids.includes(person.id)) return false;
       return [person.name, person.context, ...person.labels].join(" ").toLowerCase().includes(query);
     });
   }
@@ -1242,8 +1235,8 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       <p class="sheet-intro">亲自勾选重点客户。他们每发一条新朋友圈，都会单独提醒你。</p>
       ${searchField("pickerQuery", "搜索姓名、备注或标签", picker.query)}
       <div class="filter-row"><div class="filters" id="pickerFilters" aria-label="客户筛选"></div>
-        <select data-change="stage" aria-label="跟进阶段">
-          <option value="">所有阶段</option>${stages.map((stage) => `<option ${picker.stage === stage ? "selected" : ""}>${stage}</option>`).join("")}
+        <select data-change="picker-tag" aria-label="微信标签">
+          <option value="">微信标签</option>${tags.map((tag) => `<option value="${tag.id}" ${picker.tag === tag.id ? "selected" : ""}>${tag.name}</option>`).join("")}
         </select></div>
       <div class="bulk-line" id="bulkLine"></div>
       <div class="picker-list" id="pickerRows" aria-label="客户列表"></div>
@@ -1267,7 +1260,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       : "";
     $("pickerFilters").innerHTML = [["all", "全部客户"], ["selected", `已选 ${count}`]]
       .map(([filter, label]) => `<button class="filter" type="button" data-act="picker-filter" data-id="${filter}" aria-pressed="${picker.filter === filter}"><span>${label}</span></button>`).join("");
-    const filtering = Boolean(picker.query.trim() || picker.stage || picker.filter !== "all");
+    const filtering = Boolean(picker.query.trim() || picker.tag || picker.filter !== "all");
     $("bulkLine").innerHTML = `<span>${num(matched.length)} 位${filtering ? "匹配" : "可选客户"}</span>
       ${matched.length > 1 && available.length && (filtering || !picker.setup) ? textButton("batch-add", filtering ? `加入筛选中的 ${num(available.length)} 位` : `加入剩余 ${num(available.length)} 位`) : ""}
       ${matched.length > 1 && checked.length && picker.filter === "selected" ? textButton("batch-remove", `移出筛选中的 ${num(checked.length)} 位`) : ""}`;
@@ -1357,7 +1350,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
         : "";
       append({
         type: "assistant",
-        text: `好，${num(count)} 位客户的朋友圈我已经开始帮你留意了。我会每天整理一份日报，有值得跟进的消息就在这里告诉你。${focusNotice}\n\n名单随时可以改。直接发「修改关注客户名单」或「修改重点客户名单」，也可以点下方的「监控名单」或「重点名单」。\n\n想在微信里也收到提醒的话，你可以绑定微信 ClawBot。以后有重要消息，我就能直接推送到你的微信上。`,
+        text: `好，${num(count)} 位客户的朋友圈我已经开始帮你留意了。我会每天 ${state.dailyDeliveryTime || "09:00"}（北京时间）把前一天的朋友圈整理成日报发给你。想换时间，直接跟我说「日报以后早上8点给我」就好。${focusNotice}\n\n名单随时可以改。直接发「修改关注客户名单」或「修改重点客户名单」，也可以点下方的「监控名单」或「重点名单」。\n\n想在微信里也收到提醒的话，你可以绑定微信 ClawBot。以后有重要消息，我就能直接推送到你的微信上。`,
       }, { type: "clawbot" });
       startScan();
       return;
@@ -1390,7 +1383,6 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     if (state.connection === "connected") return openScope();
     const turn = state.turns.panke.findLast((item) => item.type === type && !item.done);
     if (turn) {
-      turn.deferred = false;
       state.turns.panke.splice(state.turns.panke.indexOf(turn), 1);
     }
     append(turn || { type });
@@ -1409,7 +1401,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     if (state.connection === "connected" || pendingConnection) return;
     const turn = state.turns.panke.findLast((item) => ["connect", "expired"].includes(item.type) && !item.done);
     state.turns.panke = state.turns.panke.filter((item) => item !== turn);
-    commitTurns({ type: "user", text: "连接微信。" }, turn || { type: "connect" });
+    commitTurns(turn || { type: "connect" });
     setConnectionStage("preparing", "qr");
   }
   function confirmConnection() {
@@ -1513,14 +1505,16 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       append({ type: "assistant", text: "每日总结名单当前为空。想让我每天汇总谁的朋友圈，直接说“更新监控客户”就好。" });
       return;
     }
-    let report = state.reports.findLast((item) => item.dayCode === state.dayCode);
+    const reportDay = proactive ? state.dayCode - 1 : state.dayCode;
+    let report = state.reports.findLast((item) => item.dayCode === reportDay);
     if (!report || retryReport) {
-      report = makeDayReport(state, state.dayCode);
+      report = makeDayReport(state, reportDay);
       state.reports.push(report);
       if (retryReport) retryReport.retried = report.id;
     }
-    if (proactive && (!state.summaryPrefs.daily || [...state.turns.panke, ...state.pendingReplies].some((turn) => ["daily", "report"].includes(turn.type) && turn.id === report.id))) { persist(); return; }
-    append({ type: "date", text: `${report.day} ${report.time}`, code: report.dayCode }, { type: "daily", id: report.id, proactive });
+    if (proactive && (!state.summaryPrefs.daily || [...state.turns.panke, ...state.pendingReplies].some((turn) => turn.type === "daily" && turn.proactive && turn.id === report.id))) { persist(); return; }
+    const deliveryTime = proactive ? `今天 ${state.demoTime}` : `${report.day} ${report.time}`;
+    append({ type: "date", text: deliveryTime, code: state.dayCode }, { type: "daily", id: report.id, proactive });
   }
 
   function requestDailySummary() {
@@ -1644,12 +1638,41 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     const keys = [...state.reports.flatMap(reportKeys), ...state.extras.map((item) => item.key)];
     return keys.reverse().find((key) => eventByKey[key].id === Number(id));
   }
+  function updateDailyDeliveryTime(text) {
+    if (!/日报|日总结|每日总结/.test(text) || !/以后|改[到为成]|调整|推送时间|每天/.test(text) || /^(?:关闭|停用)/.test(text)) return false;
+    const match = text.match(/(凌晨|早上|上午|中午|下午|傍晚|晚上)?\s*(\d{1,2}|[零一二两三四五六七八九十]{1,3})\s*(?:[:：](\d{2})|(?:点|时)(半|[一二三四五六七八九十]+分|\d{1,2}\s*分)?)/);
+    const number = (value) => {
+      if (/^\d+$/.test(value)) return Number(value);
+      const digits = "零一二三四五六七八九";
+      const parts = value.replace("两", "二").split("十");
+      if (parts.length === 1) return digits.indexOf(parts[0]);
+      if (parts.length !== 2) return NaN;
+      return (parts[0] ? digits.indexOf(parts[0]) : 1) * 10 + (parts[1] ? digits.indexOf(parts[1]) : 0);
+    };
+    if (!match && !/时间|几点/.test(text)) return false;
+    const [, period, hours, clockMinutes, spokenMinutes] = match || [];
+    let hour = hours ? number(hours) : NaN;
+    const minute = clockMinutes ? Number(clockMinutes) : spokenMinutes === "半" ? 30
+      : spokenMinutes ? number(spokenMinutes.replace(/\s*分$/, "")) : 0;
+    if (!Number.isInteger(hour) || hour < 0 || hour > 23 || (period && hour > 12) || minute < 0 || minute > 59 || !Number.isInteger(minute)) {
+      append({ type: "assistant", text: "你想每天几点收到日报？可以说「日报以后早上8点给我」。" });
+      return true;
+    }
+    if (/下午|傍晚|晚上/.test(period || "") && hour < 12) hour += 12;
+    if (period === "凌晨" && hour === 12) hour = 0;
+    if (period === "中午" && hour < 12) hour += 12;
+    state.dailyDeliveryTime = [hour, minute].map((part) => String(part).padStart(2, "0")).join(":");
+    append({ type: "assistant", text: `记下了，以后每天 ${state.dailyDeliveryTime}（北京时间）给你发前一天的朋友圈日报。${state.summaryPrefs.daily ? "" : "日报推送目前暂停，开启后会按这个时间发送。"}` });
+    return true;
+  }
+
   function sendMessage(value) {
     const text = value.trim();
     if (!text) return;
     append({ type: "user", text });
 
 
+    if (updateDailyDeliveryTime(text)) return;
     if (/claw\s*bot/i.test(text)) return append({ type: "clawbot" });
     if (/隐私|权限范围|读取范围/.test(text)) return append({ type: "privacy" });
     if (/场景预览/.test(text)) return showSheet("scenarios");
@@ -1817,7 +1840,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     if (state.dayCode >= 22) return notify("已经到本周最后一天，可以查看周总结。");
     cancelMoment();
     state.dayCode += 1;
-    state.demoTime = "18:00";
+    state.demoTime = state.dailyDeliveryTime || "09:00";
     startScan("scheduled", null, true);
   }
 
@@ -1984,11 +2007,6 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     "connect-scan": () => setConnectionStage("recognizing", "verify"),
     "connect-cancel": () => setConnectionStage(null),
     "connect-confirm": confirmConnection,
-    "connect-later": () => {
-      const turn = state.turns.panke.findLast((item) => item.type === "connect" && !item.done);
-      if (turn) turn.deferred = true;
-      setConnectionStage(null);
-    },
     retry: (id) => {
       const report = state.reports.find((item) => item.id === Number(id));
       if (report?.retried) return actions["history-open"](String(report.retried));
@@ -2059,8 +2077,8 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       renderChat();
       stream.querySelector(`input[data-change="tag"][value="${field.value}"]`)?.focus({ preventScroll: true });
     },
-    stage: (field) => {
-      picker.stage = field.value;
+    "picker-tag": (field) => {
+      picker.tag = field.value;
       picker.candidate = 0;
       picker.limit = 20;
       $("pickerRows").scrollTop = 0;
