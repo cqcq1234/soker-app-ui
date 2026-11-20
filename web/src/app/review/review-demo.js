@@ -29,6 +29,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     people: '<circle cx="9" cy="8" r="3"/><path d="M3 19v-1a6 6 0 0 1 12 0v1m1-14a3 3 0 0 1 0 6m1 3a5 5 0 0 1 4 5"/>',
     bell: '<path d="M5 16h14l-2-3V9a5 5 0 0 0-10 0v4zm5 4h4"/>',
     down: '<path d="m6 9 6 6 6-6"/>',
+    thumb: '<path d="M7 10v10H3V10h4Zm0 9h10.2a2 2 0 0 0 2-1.6l1.4-6A2 2 0 0 0 18.6 9H14l.6-3.1C15 4.1 13.9 3 12.6 3L7 10"/>',
     loader: '<path d="M21 12a9 9 0 1 1-9-9"/>',
     history: '<path d="M3 12a9 9 0 1 1 2.6 6.4M3 7v5h5m4-5v5l3 2"/>',
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
@@ -47,7 +48,6 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     15: "/chat/review/customer-15.jpg",
   };
   const demoQr = "/chat/review/demo-connection.png";
-  const brandImage = '<img class="brand" alt="" src="/chat/soker-app-icon.svg" width="20" height="20">';
 
   const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -174,9 +174,16 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     { code: 22, label: "11 月 22 日", posts: 26, keys: [] },
   ];
   const casualMoments = [
-    "傍晚散了会儿步，天气比想象中舒服。", "今天和老朋友吃了顿饭，好久没聊这么开心。",
-    "周末陪家人逛逛，给自己放半天假。", "把积攒的书单整理了一下，慢慢看。",
-    "办公室楼下新开的咖啡店，今天终于去试了。", "忙完这一阵，准备去附近走走。",
+    "在运河边走了四公里，回来的路上买了袋糖炒栗子，走到家还热着。",
+    "和大学室友约了顿晚饭，上次见面还是两年前。菜凉了半桌，话倒是没停。",
+    "周六带娃去少年宫上课，附近停车位太难找了，下次准备坐地铁去。",
+    "书架清了一层，翻到去年出差买的书，里面还夹着一张杭州东的车票。",
+    "公司楼下的小店换了豆子，老板让我试了杯手冲，居然喝出了橘子味。",
+    "今天总算把季度项目交了。关电脑时天还亮着，打算走路回家。",
+    "老爸说周末想去附近的茶山转转，天气好的话就带他出去半天。",
+    "下班去菜场买了两斤小排，按我妈说的做糖醋排骨，第一次没把糖炒糊。",
+    "去接孩子放学，老师说他今天主动举手讲故事。一路上他给我复述了三遍。",
+    "在球馆打完球才发现下雨了，几个人在门口等了半小时，顺便约了下周。",
   ];
   const mockMoments = mockDays.flatMap((day) => {
     const meaningful = day.keys.map((key) => ({ key, ...eventByKey[key], dayCode: day.code }));
@@ -184,9 +191,21 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     const ordinary = Array.from({ length: day.posts - meaningful.length }, (_, index) => ({
       key: `life-${day.code}-${index}`, id: 31 + ((index * 37 + day.code) % 470), dayCode: day.code,
       source: casualMoments[(index + day.code) % casualMoments.length],
-      time: `07:${String((index * 7) % 60).padStart(2, "0")}`,
+      time: `${String(7 + index % 16).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}`,
     }));
-    return [...meaningful, ...ordinary];
+    const moments = [...meaningful, ...ordinary];
+    // Give every selectable tag a dated example, including tags outside the default audience.
+    for (const tag of tags) {
+      if (!tag.ids.length || moments.some((moment) => tag.ids.includes(moment.id))) continue;
+      moments.push({
+        key: `tag-${tag.id}-${day.code}`,
+        id: tag.ids[(day.code - 16) % tag.ids.length],
+        dayCode: day.code,
+        source: casualMoments[(day.code - 16) % casualMoments.length],
+        time: "19:20",
+      });
+    }
+    return moments;
   });
   const stages = ["临近成交", "已约到店", "意向沟通", "待确认", "已成交"];
   const stageRank = new Map(stages.map((stage, index) => [stage, index]));
@@ -285,37 +304,49 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
 
 
   function composeDailySummary(report, model) {
-    let text;
     if (!report.checked) {
-      return "这轮朋友圈还没有读到，暂时没法判断有没有新变化。等连接恢复后我再补看，之前的总结可以继续回看。";
+      return { overview: "这轮朋友圈还没有读到。连接恢复后我会补看，之前的日报也可以回看。" };
     }
+    const coverage = report.missed ? `另有 ${num(report.missed)} 位暂未读到，我会继续补看。` : "";
+    if (!report.posts) {
+      return { overview: `${report.day}看过 ${num(report.checked)} 位客户，已查看的范围内没有新朋友圈。`, coverage };
+    }
+
+    const covered = idsFor(report.tagIds);
+    const extraKeys = new Set(report.extraKeys || []);
+    const moments = mockMoments.filter((moment) => moment.dayCode === report.dayCode && covered.has(moment.id))
+      .concat(model.extras.filter((moment) => extraKeys.has(moment.key)));
     const keys = reportKeys(report);
     const expired = keys.filter((key) => eventByKey[key].expiresAt && eventByKey[key].expiresAt < report.time);
-    const pending = keys.filter((key) => !expired.includes(key) && !model.eventStatus[key]);
     const priority = { hangzhou: 0, swap: 1, swap20: 1, family: 1, family17: 1, arrival: 1, arrival18: 1 };
-    pending.sort((a, b) => (priority[a] ?? 2) - (priority[b] ?? 2));
-    const contacted = keys.filter((key) => model.eventStatus[key] === "contacted");
-    const deferred = keys.filter((key) => model.eventStatus[key] === "later");
-    if (!report.posts) {
-      text = `今天已看过 ${num(report.checked)} 位监控客户，已查看的范围内没有新的朋友圈，先按原计划跟进就好。`;
-    } else {
-      text = `今天看了 ${num(report.checked)} 位监控客户，读到 ${num(report.posts)} 条朋友圈，主要是日常生活、家庭和工作近况。`;
-      if (pending.length) {
-        const changes = pending.slice(0, 3).map((key) => eventByKey[key].title).join("，");
-        const first = customers.get(eventByKey[pending[0]].id).name;
-        text += `${changes}，${pending.length > 1 ? `有 ${pending.length} 位客户出现值得进一步确认的联系时机，可以先联系${first}，再按明确需求和时间安排跟进其他几位。` : "可以结合之前的沟通顺势问一句，先确认对方的具体安排。"}`;
-      } else if (contacted.length || deferred.length) {
-        if (contacted.length) text += `相关变化中已有 ${contacted.length} 位客户记录了联系结果，可以先等后续反馈。`;
-        if (deferred.length) text += `${customers.get(eventByKey[deferred[0]].id).name}已经安排稍后联系，按约定时间处理就好。`;
-        text += "这轮暂时没有需要重复联系的新变化。";
-      } else {
-        if (report.note) text += "周先生提到下周去车展，可以留作之后自然聊天的话题。";
-        text += "今天暂时没有明确需要专门联系的变化，先按原计划跟进就好。";
-      }
-    }
-    if (expired.length) text += "其中的临时需求已经过了时间窗口，这次先略过。";
-    if (report.missed) text += `另有 ${num(report.missed)} 位暂未读到，结论只针对已查看的范围，我会继续补看。`;
-    return text;
+    const pending = keys.filter((key) => !expired.includes(key) && !model.eventStatus[key])
+      .sort((a, b) => (priority[a] ?? 2) - (priority[b] ?? 2));
+    const followups = pending.map((key) => {
+      const event = eventByKey[key];
+      return { name: customers.get(event.id).name, text: event.source };
+    });
+    const topics = [
+      { name: "生活日常", examples: [0, 1, 3, 4, 7] },
+      { name: "工作近况", examples: [5] },
+      { name: "家庭与出行", examples: [2, 6, 8, 9] },
+    ].map(({ name, examples }) => {
+      const posts = moments.filter((moment) => examples.some((index) => casualMoments[index] === moment.source));
+      const samples = [...new Map(posts.map((post) => [post.source, post])).values()].slice(0, 2)
+        .map((post) => ({ name: customers.get(post.id).name, text: post.source }));
+      return { name, count: posts.length, samples };
+    }).filter((topic) => topic.count);
+    const note = moments.find((moment) => moment.key === "expo-note");
+    if (note) topics.push({ name: "车展与兴趣", count: 1, samples: [{ name: customers.get(note.id).name, text: note.source }] });
+
+    const customerCount = new Set(pending.map((key) => eventByKey[key].id)).size;
+    const conclusion = customerCount ? `，其中 ${num(customerCount)} 位值得跟进` : "";
+    const handled = keys.some((key) => model.eventStatus[key]);
+    return {
+      overview: `${report.day}看了 ${num(report.checked)} 位客户，读到 ${num(report.posts)} 条朋友圈${conclusion}。`,
+      followups, topics, coverage,
+      noFollowups: handled ? "有关联的客户已联系或安排稍后处理，先等反馈。" : "暂无需要专门联系的新变化，我会继续留意。",
+      expired: expired.length ? `有 ${num(expired.length)} 条临时需求已过联系时段。` : "",
+    };
   }
 
   function makeWeeklyReport(model) {
@@ -426,6 +457,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   let toastTimer;
   let pendingScan = null;
   let pendingConnection = null;
+  let contactSyncTimer;
   let liveTimer = null;
   let replyTimer = null;
   let activeReply = null;
@@ -490,7 +522,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   }
 
   function renderQuickActions() {
-    const suggestions = state.connection === "connected"
+    const suggestions = state.connection === "connected" && !state.contactSyncUntil
       ? [["today", "日总结"], ["week-summary", "周总结"], ["scope", "监控名单"], ["focus", "重点名单"]] : [];
     const content = suggestions.map(([action, label]) =>
       `<button type="button" data-act="${action}"><span>${label}</span></button>`).join("");
@@ -542,7 +574,24 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
 
   function renderDaily(report) {
     if (!report) return "";
-    return `<div class="assistant" data-daily-id="${report.id}" data-report-id="${report.id}" aria-label="${report.day}的每日总结"><p class="message-text">${escapeHtml(report.summary || composeDailySummary(report, state))}</p></div>`;
+    const summary = report.summary?.overview ? report.summary : composeDailySummary(report, state);
+    const { overview, followups = [], topics = [], coverage, noFollowups, expired } = summary;
+    const renderItem = ({ name, text }) => `<p><strong>${escapeHtml(name)}</strong> ${escapeHtml(text)}</p>`;
+    const extraFollowups = followups.slice(2);
+    const samples = topics.flatMap(({ samples }) => samples);
+    const highlights = followups.length ? [] : samples.slice(0, 2);
+    return `<div class="assistant" data-daily-id="${report.id}" data-report-id="${report.id}" aria-label="${report.day}的每日总结">
+      <div class="message-text daily-report">
+        <p>${escapeHtml(overview)}</p>
+        ${followups.length ? `<section><h3>值得跟进</h3>${followups.slice(0, 2).map(renderItem).join("")}
+          ${extraFollowups.length ? `<details><summary>展开其余 ${num(extraFollowups.length)} 条跟进</summary>${extraFollowups.map(renderItem).join("")}</details>` : ""}</section>` : noFollowups ? `<p>${escapeHtml(noFollowups)}</p>` : ""}
+        ${topics.length ? `<section><h3>朋友圈近况</h3><p class="daily-report-meta">${topics.map((topic) => `${topic.name} ${num(topic.count)} 条`).join(" · ")}</p>
+          ${highlights.map(renderItem).join("")}
+          <details><summary>按话题查看近况</summary>${topics.map((topic) =>
+            `<section><h4>${topic.name}</h4>${topic.samples.map(renderItem).join("")}</section>`).join("")}</details></section>` : ""}
+        ${[expired, coverage].filter(Boolean).map((line) => `<p class="daily-report-meta">${escapeHtml(line)}</p>`).join("")}
+      </div>
+    </div>`;
   }
 
   function toggle(action, label, data, expanded) {
@@ -588,6 +637,17 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   }
 
   function renderConnect(turn) {
+    if (turn.done && state.contactSyncUntil && state.turns.panke.findLast((item) =>
+      ["connect", "expired"].includes(item.type)) === turn) {
+      const syncingFriends = state.contactSyncUntil - Date.now() <= 2200;
+      const stage = syncingFriends ? "正在同步微信朋友" : "正在同步微信标签";
+      return `<div class="assistant">
+        <p class="message-text">微信连上了。我正在同步标签和朋友，需要一点时间。同步好后，你就可以用标签选想关注的客户了。</p>
+        <section class="editor contact-sync">
+          <p role="status">${icon("loader", "waiting-icon")}${stage}</p>
+          <progress aria-label="微信同步进度" max="100" value="${syncingFriends ? 65 : 20}"></progress>
+        </section></div>`;
+    }
     if (turn.done) return `<div class="assistant"><p class="message-text">微信账号「${escapeHtml(turn.done)}」已连接。先按标签选出要关注的客户，再由你挑选重点客户。</p>
       ${!state.tags.length && !state.scopeDraft ? `<div class="actions">${button("scope", "选择标签客户")}</div>` : ""}</div>`;
     const expired = turn.type === "expired";
@@ -595,26 +655,21 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     let card;
     switch (pendingConnection?.stage) {
       case "preparing":
-      case "verifying":
       case "recognizing":
-        card = `${thinkingDots()}<p>${pendingConnection.stage === "preparing" ? "正在生成连接二维码" : pendingConnection.stage === "recognizing" ? "正在读取扫码结果" : "正在核对微信账号"}</p>
+        card = `<p class="connection-loading" role="status">${icon("loader", "waiting-icon")}${pendingConnection.stage === "preparing" ? "正在生成连接二维码" : "正在核对微信账号"}</p>
           <div class="connection-actions">${cancel}</div>`;
         break;
       case "qr":
         card = `<h2>用微信扫描二维码</h2><p>请在手机微信中完成扫码。</p>
           <img class="connection-preview" src="${demoQr}" alt="微信连接二维码">
           <div class="connection-actions">
-            ${button("connect-scan", "我已扫码", { kind: "primary block" })}
+            ${button("connect-scan", "模拟扫码", { kind: "primary block" })}
             ${textButton("connect-refresh", "刷新二维码")}${cancel}
           </div>`;
         break;
-      case "phone":
-        card = `<h2>已扫码，等待手机确认</h2><p>请在手机微信上确认本次连接。</p>
-          <div class="connection-actions">${button("connect-phone", "已在微信确认", { kind: "primary block" })}${cancel}</div>`;
-        break;
       case "verify":
         card = `<h2>确认使用这个微信</h2>
-          <div class="entry"><span class="avatar account-icon">${icon("note")}</span><span class="row-copy"><strong>${escapeHtml(state.chosenAccount)}</strong><small>微信账号</small></span></div>
+          <div class="entry"><span class="avatar account-icon" aria-hidden="true">${escapeHtml(state.chosenAccount[0])}</span><span class="row-copy"><strong>${escapeHtml(state.chosenAccount)}</strong><small>微信账号</small></span></div>
           <div class="connection-actions">${button("connect-confirm", "确认使用此账号", { kind: "primary block" })}${cancel}</div>`;
         break;
       default:
@@ -675,11 +730,113 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       </section></div>`;
   }
 
+  let clawBotLinked = false;
+  let clawBotAttempt;
+
+  function cancelClawBot() {
+    const attempt = clawBotAttempt;
+    clawBotAttempt = undefined;
+    if (!attempt) return;
+    attempt.controller.abort();
+    clearInterval(attempt.clock);
+    clearTimeout(attempt.poll);
+    if (attempt.id) void fetch(clawBotUrl(attempt.id), { method: "DELETE" }).catch(() => {});
+  }
+
+  function clawBotUrl(id) {
+    return "/api/clawbot?" + new URLSearchParams({ id });
+  }
+
+  async function startClawBot() {
+    cancelClawBot();
+    showSheet("clawbot");
+    const content = $("sheetContent");
+    const attempt = { controller: new AbortController() };
+    clawBotAttempt = attempt;
+    content.innerHTML = '<p role="status">正在获取微信二维码…</p>';
+
+    function finish(message) {
+      if (clawBotAttempt !== attempt) return;
+      cancelClawBot();
+      content.innerHTML = `<p role="status">${message}</p>${button("clawbot-refresh", "重新获取二维码", { kind: "block" })}`;
+    }
+
+    async function poll(pin) {
+      try {
+        const response = await fetch(clawBotUrl(attempt.id), {
+          signal: attempt.controller.signal,
+          ...(pin ? { method: "POST", body: pin } : {}),
+        });
+        if (!response.ok) throw new Error("Status unavailable");
+        const { status } = await response.json();
+        if (clawBotAttempt !== attempt) return;
+        if (status === "confirmed") {
+          clawBotLinked = true;
+          closeSheet();
+          renderChat();
+          notify("微信 ClawBot 已绑定");
+          return;
+        }
+        if (status === "expired") return finish("二维码已失效，请重新获取。");
+        if (status === "already-bound") return finish("微信显示此 ClawBot 已绑定，请核对微信里的连接。");
+        if (status === "pin") {
+          content.querySelector("[data-clawbot-status]").textContent = "请输入微信上显示的配对数字";
+          const form = content.querySelector("form");
+          form.hidden = false;
+          form.querySelector("input").focus();
+          form.onsubmit = (event) => {
+            event.preventDefault();
+            form.hidden = true;
+            void poll(form.querySelector("input").value);
+            form.reset();
+          };
+          return;
+        }
+        content.querySelector("[data-clawbot-status]").textContent = status === "scanned"
+          ? "已扫码，请在手机微信上确认授权"
+          : "等待微信扫码";
+        attempt.poll = setTimeout(poll, 1200);
+      } catch {
+        finish("微信授权状态暂时无法获取，请重试。");
+      }
+    }
+
+    try {
+      const response = await fetch("/api/clawbot", { method: "POST", signal: attempt.controller.signal });
+      if (!response.ok) throw new Error("QR unavailable");
+      const { id, image, expiresAt } = await response.json();
+      if (clawBotAttempt !== attempt) return;
+      attempt.id = id;
+      content.innerHTML = `<div class="clawbot-scan">
+        <img alt="微信 ClawBot 授权二维码" width="224" height="224">
+        <p>二维码有效时间 <time></time></p>
+        <p role="status" data-clawbot-status>等待微信扫码</p>
+        <h3>使用手机微信扫描二维码</h3>
+        <p>请在手机上核对并确认授权。微信要求配对时，请输入手机上显示的数字。</p>
+        <form hidden><label>配对数字 <input inputmode="numeric" pattern="[0-9]{1,12}" maxlength="12" required></label>
+          <button class="button" type="submit">确认配对</button></form>
+        ${button("clawbot-refresh", "刷新二维码", { kind: "block" })}
+      </div>`;
+      content.querySelector("img").src = image;
+      function tick() {
+        const seconds = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+        content.querySelector("time").textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+        if (!seconds) finish("二维码已失效，请重新获取。");
+      }
+      tick();
+      if (clawBotAttempt !== attempt) return;
+      attempt.clock = setInterval(tick, 1000);
+      void poll();
+    } catch {
+      finish("暂时无法获取微信二维码，请重试。");
+    }
+  }
+
   function renderClawBot() {
-    const status = state.clawBot === "demo" ? "授权已完成" : "用微信接收盘客提醒";
+    const status = clawBotLinked ? "授权已完成" : "用微信接收盘客提醒";
     return `<section class="editor setup-card" aria-label="微信 ClawBot">
       <h2>微信 ClawBot</h2><p>${status}。它用于和助手对话，也可作为日报和重点动态的通知渠道。朋友圈读取权限单独管理。</p>
-      ${state.clawBot === "demo" ? "" : button("clawbot-demo", "授权微信 ClawBot", { kind: "block" })}
+      ${clawBotLinked ? "" : button("clawbot-open", "授权微信 ClawBot", { kind: "block" })}
     </section>`;
   }
 
@@ -921,12 +1078,17 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   function renderChat(position = "preserve") {
     const previous = chat.scrollTop;
     const log = state.turns[state.tab];
-    const incoming = log.map(renderTurn).join("");
+    const incoming = log.map((turn, index) => renderTurn(turn)
+      .replace(/^<div class="assistant(?=[ "])/, `<div data-turn-index="${index}" class="assistant`)).join("");
     renderQuickActions();
     stream.innerHTML = incoming + (activeReply ? `<div class="assistant typing">${thinkingDots()}</div>` : "");
-    for (const message of stream.querySelectorAll(":scope > .assistant")) {
-      message.setAttribute("aria-label", "Soker 发来的消息");
-      message.insertAdjacentHTML("afterbegin", `<div class="agent-author">${brandImage}<span>Soker</span></div>`);
+    const message = stream.lastElementChild;
+    if (message?.hasAttribute("data-turn-index")) {
+      const { feedback } = log[Number(message.dataset.turnIndex)];
+      message.insertAdjacentHTML("beforeend", `<div class="reply-feedback" role="group" aria-label="评价回复">
+        <button type="button" data-feedback="up" aria-label="点赞" aria-pressed="${feedback === "up"}">${icon("thumb")}</button>
+        <button type="button" data-feedback="down" aria-label="点踩" aria-pressed="${feedback === "down"}">${icon("thumb")}</button>
+      </div>`);
     }
     if (lastDelivered) {
       const index = log.indexOf(lastDelivered);
@@ -981,6 +1143,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   }
 
   function closeSheet() {
+    if (dialogView === "clawbot") cancelClawBot();
     if (sheet.open) {
       sheet.close();
       onSheetChange(false);
@@ -992,7 +1155,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
 
   function renderSheet() {
     const titles = {
-      directory: "微信朋友", "friend-detail": customers.get(selectedFriend)?.name, scenarios: "场景预览",
+      clawbot: "绑定微信 ClawBot", directory: "微信朋友", "friend-detail": customers.get(selectedFriend)?.name, scenarios: "场景预览",
       picker: "选择重点客户", pause: "暂停监控",
       "tag-preview": byTag[tagPreviewId]?.name, moment: "朋友圈原文",
     };
@@ -1138,6 +1301,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     state.tab = "panke";
   }
   function openScope(draft, requested = true) {
+    if (state.contactSyncUntil) return notify("微信标签和朋友还在同步，请稍等一下。");
     if (state.connection !== "connected") return showConnection(state.connection === "expired" ? "expired" : "connect");
     state.scopeDraft = draft ?? state.scopeDraft ?? [...state.tags];
     state.turns.panke = state.turns.panke.filter((turn) => !["setup-focus", "setup-review"].includes(turn.type));
@@ -1193,7 +1357,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
         : "";
       append({
         type: "assistant",
-        text: `好，${num(count)} 位客户的朋友圈我已经开始帮你留意了。我会每天整理一份日报，有值得跟进的消息就在这里告诉你。${focusNotice}\n\n想在微信里也收到提醒的话，你可以绑定微信 ClawBot。以后有重要消息，我就能直接推送到你的微信上。`,
+        text: `好，${num(count)} 位客户的朋友圈我已经开始帮你留意了。我会每天整理一份日报，有值得跟进的消息就在这里告诉你。${focusNotice}\n\n名单随时可以改。直接发「修改关注客户名单」或「修改重点客户名单」，也可以点下方的「监控名单」或「重点名单」。\n\n想在微信里也收到提醒的话，你可以绑定微信 ClawBot。以后有重要消息，我就能直接推送到你的微信上。`,
       }, { type: "clawbot" });
       startScan();
       return;
@@ -1262,8 +1426,21 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     } else if (state.configured) {
       append({ type: "assistant", text: "微信已连接。当前的监控处于暂停状态，准备继续时可以在这里说“恢复监控”。" });
     } else {
-      openScope(undefined, false);
+      state.contactSyncUntil = Date.now() + 4200;
+      resumeContactSync();
     }
+  }
+
+  function resumeContactSync() {
+    clearTimeout(contactSyncTimer);
+    const remaining = state.contactSyncUntil - Date.now();
+    if (remaining <= 0) {
+      delete state.contactSyncUntil;
+      openScope(undefined, false);
+      return;
+    }
+    renderChat("latest");
+    contactSyncTimer = setTimeout(resumeContactSync, remaining > 2200 ? remaining - 2200 : remaining);
   }
 
   async function startScan(outcome = "refresh", retryReport = null, deliverSummary = false) {
@@ -1347,6 +1524,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   }
 
   function requestDailySummary() {
+    if (state.configured && state.scenario === "onboard" && state.connection === "connected") return publishDailySummary();
     if (state.reports.some((report) => report.dayCode === state.dayCode) || !state.tags.length) publishDailySummary();
     else startScan("summary", null, true);
   }
@@ -1429,8 +1607,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   ${keys.slice(0, 5).map((key) => {
       const event = eventByKey[key];
       return `
-  ${customers.get(event.id).name}：${event.reason || event.summary}
-  原文“${event.source}”（${eventDate(event)}）。`;
+  ${customers.get(event.id).name}的朋友圈原文“${event.source}”（${eventDate(event)}）。`;
     }).join("\n")}</p></div>`;
   }
 
@@ -1440,6 +1617,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     clearTimeout(pendingScan?.timer);
     cancelMoment();
     clearTimeout(pendingConnection?.timer);
+    clearTimeout(contactSyncTimer);
     cancelReplies();
     pendingScan = pendingConnection = null;
     closeSheet();
@@ -1491,7 +1669,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       if (/(开启|打开).*周总结/.test(text)) state.settingsDraft.weekly = true;
       return append({ type: "summary-settings" });
     }
-    if (/周总结|这周.*(总结|近况|情况)/.test(text)) return publishWeeklySummary(false);
+    if (/周报|周总结|这周.*(总结|近况|情况)/.test(text)) return publishWeeklySummary(false);
     if (/展开.*(商机|变化|跟进)|哪几个.*(商机|值得)|详细.*(商机|跟进)/.test(text)) {
       const report = state.reports.findLast((item) => item.dayCode === state.dayCode);
       return append({ type: "opportunity-details", id: report?.id });
@@ -1520,6 +1698,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     if (/盘一下|盘一次|再查|今天有机会|检查一下|进度/.test(text)) {
       return /进度/.test(text) ? append({ type: "activity" }) : startScan(state.scenario);
     }
+    if (text === "修改关注客户名单") return openScope(undefined, false);
     if (/重点|重要客户|重要名单|特别关注/.test(text)) {
       if (people.length && /加|设为|移|取消|去掉/.test(text)) {
         return append({ type: "candidate", ids: people, mode: /移|去掉|取消/.test(text) ? "remove" : "focus" });
@@ -1668,11 +1847,8 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     "moment-open": (key) => { selectedMoment = key; showSheet("moment"); },
     "copy-wechat": copyWeChat,
     "copy-open-moment": copyAndOpenMoment,
-    "clawbot-demo": () => {
-      state.clawBot = "demo";
-      renderChat();
-      notify("微信 ClawBot 已绑定");
-    },
+    "clawbot-open": startClawBot,
+    "clawbot-refresh": startClawBot,
     "sheet-close": closeSheet,
     "sheet-back": () => showSheet(dialogParent),
     "directory-more": (id) => renderDirectory(Number(id)),
@@ -1805,8 +1981,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     reconnect: () => showConnection("expired"),
     "connect-start": startConnection,
     "connect-refresh": () => setConnectionStage("preparing", "qr"),
-    "connect-scan": () => setConnectionStage("recognizing", "phone"),
-    "connect-phone": () => setConnectionStage("verifying", "verify"),
+    "connect-scan": () => setConnectionStage("recognizing", "verify"),
     "connect-cancel": () => setConnectionStage(null),
     "connect-confirm": confirmConnection,
     "connect-later": () => {
@@ -1902,6 +2077,18 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
   };
 
   root.addEventListener("click", (event) => {
+    const feedback = event.target.closest("button[data-feedback]");
+    if (feedback) {
+      const message = feedback.closest("[data-turn-index]");
+      const turn = state.turns[state.tab][Number(message.dataset.turnIndex)];
+      if (turn.feedback === feedback.dataset.feedback) delete turn.feedback;
+      else turn.feedback = feedback.dataset.feedback;
+      for (const button of message.querySelectorAll("button[data-feedback]")) {
+        button.setAttribute("aria-pressed", String(turn.feedback === button.dataset.feedback));
+      }
+      persist();
+      return;
+    }
     const target = event.target.closest("[data-act]");
     if (target && !target.disabled) {
       if (activeReply && target.closest(".chat, .quick, .status-slot") && !["detail", "more-report"].includes(target.dataset.act)) {
@@ -1960,6 +2147,7 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
     saveScope(state.focusDraft || {});
   }
   if (state.pendingReplies.length) pumpReplies();
+  if (state.contactSyncUntil) resumeContactSync();
   if (state.pendingMoment && !state.paused) scheduleMoment();
   if (state.pendingRefresh && !state.paused && state.connection === "connected") {
     const pending = state.pendingRefresh;
@@ -1980,10 +2168,12 @@ export function mountReviewDemo(root, onSheetChange, onboarding = false) {
       showSheet("directory");
     },
     dispose() {
+      cancelClawBot();
       listeners.abort();
       clearTimeout(toastTimer);
       clearTimeout(pendingScan?.timer);
       clearTimeout(pendingConnection?.timer);
+      clearTimeout(contactSyncTimer);
       clearTimeout(liveTimer);
       clearTimeout(replyTimer);
       for (const resolve of replyWaiters.values()) resolve(false);

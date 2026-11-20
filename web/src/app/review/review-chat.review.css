@@ -29,7 +29,6 @@ button, p, h1, h2, h3 { margin: 0; }
 p { text-wrap: pretty; overflow-wrap: anywhere; }
 button { padding: 0; border: 0; background: none; }
 .icon { width: 20px; height: 20px; flex: none; vertical-align: middle; }
-.brand { width: 34px; height: 34px; flex: none; border-radius: 11px; }
 .app { display: flex; flex-direction: column; position: relative; height: 100%; min-height: 0; }
 .reviewBar { display: flex; justify-content: center; flex: none; padding-inline: var(--gutter); }
 .status-slot:empty, .reviewBar:has(.status-slot:empty) { display: none; }
@@ -67,8 +66,6 @@ button { padding: 0; border: 0; background: none; }
 .day { color: var(--muted); text-align: center; font-size: .75rem; font-variant-numeric: tabular-nums; }
 .user-message { justify-self: end; padding: 13px 16px; border-radius: 19px 19px 6px 19px; background: var(--user); max-width: calc(100% - 20px); font-size: .9375rem; overflow-wrap: anywhere; }
 .assistant { font-size: .9375rem; line-height: 1.65; display: grid; gap: 10px; min-width: 0; }
-.agent-author { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .75rem; line-height: 20px; margin-bottom: -5px; }
-.agent-author .brand { width: 20px; height: 20px; border-radius: 6px; }
 .message-text { width: fit-content; max-width: calc(100% - 20px); padding: 13px 16px; border-radius: 19px 19px 19px 6px; background: var(--soft); white-space: pre-line; font: inherit; }
 .typing { margin-block: 3px 7px; }
 .thinking-dots { display: inline-flex; align-items: center; gap: 6px; width: fit-content; min-width: 64px; min-height: 42px; padding: 13px 16px; background: var(--soft); border-radius: 19px 19px 19px 6px; }
@@ -334,4 +331,106 @@ button { padding: 0; border: 0; background: none; }
 .welcome-capability p {
   font-size: .875rem;
   color: var(--muted);
+}
+
+.clawbot-scan {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+.clawbot-scan img {
+  display: block;
+  width: min(224px, 100%);
+  height: auto;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.clawbot-scan time {
+  font-variant-numeric: tabular-nums;
+}
+.clawbot-scan input {
+  width: 9em;
+  margin: 6px;
+  padding: 6px;
+}
+
+.daily-report {
+  width: 100%;
+  max-width: none;
+  display: grid;
+  gap: 12px;
+  white-space: normal;
+}
+
+.daily-report h3,
+.daily-report h4 {
+  font-size: inherit;
+}
+
+.daily-report section > * + *,
+.daily-report details > * + * {
+  margin-top: 6px;
+}
+
+.daily-report-meta {
+  color: var(--muted);
+}
+
+.daily-report summary {
+  color: var(--blue);
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+}
+
+.reply-feedback {
+  display: flex;
+  gap: 0;
+  margin-top: -6px;
+}
+
+.reply-feedback button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--muted);
+}
+
+.reply-feedback .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.reply-feedback [data-feedback="down"] .icon {
+  transform: rotate(180deg);
+}
+
+.connection-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reply-feedback button[aria-pressed="true"] {
+  background: var(--tint);
+  color: var(--blue);
+}
+
+.contact-sync p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contact-sync progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--blue);
+}
+
+.contact-sync progress::-webkit-progress-value {
+  transition: width .4s ease;
 }

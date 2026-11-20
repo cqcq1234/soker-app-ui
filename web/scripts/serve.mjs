@@ -4,6 +4,8 @@ import { createServer } from "node:http";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { handleClawBot } from "./clawbot.mjs";
+
 const root = fileURLToPath(new URL("../dist", import.meta.url));
 const port = Number(process.env.PORT ?? 3131);
 const types = {
@@ -17,7 +19,9 @@ const types = {
 
 createServer(async (request, response) => {
   try {
-    const pathname = decodeURIComponent(new URL(request.url, "http://localhost").pathname);
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const pathname = decodeURIComponent(url.pathname);
+    if (pathname === "/api/clawbot") return await handleClawBot(request, response, url);
     const page = pathname === "/" || pathname === "/chat-tab" || pathname === "/chat-tab/";
     const file = resolve(root, page ? "index.html" : `.${pathname}`);
     if (!file.startsWith(root + sep) || !(await stat(file)).isFile()) {
